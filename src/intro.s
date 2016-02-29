@@ -4,7 +4,7 @@
 ;
 ; code: riq
 ; Some code snippets were taken from different places. Credit added in those snippets.
-;       
+;
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 
 
@@ -27,6 +27,8 @@ SPRITE0_POINTER = ($3400 / 64)
 
 INIT_MUSIC = $be00
 PLAY_MUSIC = $be20
+
+BITMAP_ADDR = $2000 + 8 * 40 * 22
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Macros
@@ -85,20 +87,33 @@ PLAY_MUSIC = $be20
         cli
 
 main_loop:
-        lda sync_raster_irq             ; raster triggered ?
-        beq main_loop
-
-        dec sync_raster_irq
+        lda sync_music                  ; raster triggered ?
+        beq next_1
 
 .if (::DEBUG & 2)
         inc $d020
 .endif
+        dec sync_music
         jsr PLAY_MUSIC
-        jsr anim_sprite
-
 .if (::DEBUG & 2)
         dec $d020
 .endif
+
+next_1:
+        lda sync_anims
+        beq next_2
+
+.if (::DEBUG & 1)
+        inc $d020
+.endif
+        dec sync_anims
+        jsr anim_sprite
+        jsr anim_scroll
+.if (::DEBUG & 1)
+        dec $d020
+.endif
+
+next_2:
 
         jmp main_loop
 
@@ -107,9 +122,10 @@ main_loop:
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc init_bitmap
         ldx #0
-        lda #%10101010
+        lda #0
 
 loop:
+        sta $3700,x
         sta $3800,x
         sta $3900,x
         sta $3a00,x
@@ -119,7 +135,7 @@ loop:
         sta $3e00,x
         sta $3f00,x
         dex
-        bpl loop
+        bne loop
         rts
 .endproc
 
@@ -139,8 +155,8 @@ loop_a:
         lda c_logo_colors,y
         sta $d800+104,x
 
-        inx
-        bpl loop_a
+        dex
+        bne loop_a
 
         ldx #0
 loop_b:
@@ -154,17 +170,17 @@ loop_b:
         lda mania_colors,y
         sta $d800+360+104,x
 
-        inx
-        bpl loop_b
+        dex
+        bne loop_b
 
 
-        lda #$01
+        lda #$10
         ldx #0
 loop_c:
         sta __SCREEN_RAM_LOAD__+19*40,x
-        sta __SCREEN_RAM_LOAD__+19*40+24,x
-        dex
-        bpl loop_c
+        inx
+        cpx #(6*40)
+        bne loop_c
 
         rts
 .endproc
@@ -199,6 +215,117 @@ loop_c:
         sta $d026
 
         rts
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; anim_scroll
+; uses $fa-$ff as temp variables
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc anim_scroll
+
+        ; uses fa-ff
+        lda #0
+        sta $fa                         ; tmp variable
+
+        ldx #<charset
+        ldy #>charset
+        stx $fc
+        sty $fd                         ; pointer to charset
+
+load_scroll_addr = * + 1
+        lda scroll_text                 ; self-modifying
+        cmp #$ff
+        bne next
+        ldx #0
+        stx bit_idx
+        ldx #<scroll_text
+        ldy #>scroll_text
+        stx load_scroll_addr
+        sty load_scroll_addr+1
+        lda scroll_text
+
+next:
+        clc                             ; char_idx * 8
+        asl
+        rol $fa
+        asl
+        rol $fa
+        asl
+        rol $fa
+
+        tay                             ; char_def = ($fc),y
+        sty $fb                         ; to be used in the bottom part of the char
+
+        clc
+        lda $fd
+        adc $fa                         ; A = charset[char_idx * 8]
+        sta $fd
+
+
+        ; scroll top 8 bytes
+        ; YY = char rows
+        ; SS = bitmap cols
+        .repeat 8, YY
+                lda ($fc),y
+                ldx bit_idx             ; set C according to the current bit index
+:               asl
+                dex
+                bpl :-
+
+                .repeat 40, SS
+                        rol BITMAP_ADDR + (39 - SS) * 8 + YY
+                .endrepeat
+                iny                     ; byte of the char
+        .endrepeat
+
+
+        ; fetch bottom part of the char
+        ; and repeat the same thing
+        ; which is 1024 chars appart from the previous.
+        ; so, I only have to add #4 to $fd
+        clc
+        lda $fd
+        adc #04                         ; the same thing as adding 1024
+        sta $fd
+
+        ldy $fb                         ; restore Y from tmp variable
+
+        ; scroll middle 8 bytes
+        ; YY = char rows
+        ; SS = bitmap cols
+        .repeat 8, YY
+                lda ($fc),y
+                ldx bit_idx             ; set C according to the current bit index
+:               asl
+                dex
+                bpl :-
+
+                .repeat 40, SS
+                        rol BITMAP_ADDR + 40 * 8 + (39 - SS) * 8 + YY
+                .endrepeat
+                iny                     ; byte of the char
+        .endrepeat
+
+
+        ldx bit_idx
+        inx
+        cpx #8
+        bne l1
+
+        ldx #0
+        clc
+        lda load_scroll_addr
+        adc #1
+        sta load_scroll_addr
+        bcc l1
+        inc load_scroll_addr+1
+l1:
+        stx bit_idx
+
+        rts
+
+bit_idx:
+        .byte 0                         ; points to the bit displayed
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
@@ -262,6 +389,8 @@ delay:
         stx $fffe
         sty $ffff
 
+        inc sync_anims
+
         pla                             ; restores A, X, Y
         tay
         pla
@@ -284,7 +413,7 @@ delay:
         lda #14
         sta $d023
 
-        lda #%11001010                  ; screen ram: $3000 (%1100xxxx), charset addr: $2800 (%xxxx101x)
+        lda #%11001010                  ; screen ram: $3000 (%1100xxxx) (unchanged), charset addr: $2800 (%xxxx101x)
         sta $d018
 
         lda #50 + 19 * 8
@@ -321,7 +450,7 @@ delay:
         lda #%00001000                  ; no scroll, hires, 40-cols
         sta $d016
 
-        lda #20
+        lda #00
         sta $d012
 
         ldx #<irq_a
@@ -329,7 +458,7 @@ delay:
         stx $fffe
         sty $ffff
 
-        inc sync_raster_irq
+        inc sync_music
 
         pla                             ; restores A, X, Y
         tay
@@ -342,7 +471,8 @@ delay:
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; global variables
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-sync_raster_irq:        .byte 0                 ; boolean
+sync_music:        .byte 0                 ; boolean
+sync_anims:        .byte 0                 ; boolean
 
 c_logo_colors:
         .incbin "c_logo-colors.bin"
@@ -354,6 +484,16 @@ sprite_frame_idx:
 sprite_frame:
         .byte 208, 209, 210, 209
 SPRITE_MAX_FRAMES = * - sprite_frame
+
+scroll_text:
+        scrcode "...probando scroll... este scroll tiene que ser the 1x3 en vez de 1x2 asi el pacman se come la letra del medio y las de arriba y abajo se van por arriba... bueno, al menos esa es la idea."
+        scrcode " veamos si la puedo implementar."
+        .byte $ff
+
+
+; charset to be used for sprites here
+charset:
+        .incbin "font_caren_1x2-charset.bin"
 
 
 .segment "SPRITES"
