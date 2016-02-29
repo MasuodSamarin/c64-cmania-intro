@@ -245,9 +245,9 @@ loop_b:
 sync_raster_irq:        .byte 0                 ; boolean
 
 c_logo_colors:
-        .include "c_logo-colors.s"
+        .incbin "c_logo-colors.bin"
 mania_colors:
-        .include "mania-colors.s"
+        .incbin "mania-colors.bin"
 
 
 .segment "SPRITES"
