@@ -80,7 +80,7 @@ PLAY_MUSIC = $be20
 
         jsr init_color_ram
         jsr init_sprites
-
+        jsr init_bitmap
 
         cli
 
@@ -101,6 +101,73 @@ main_loop:
 .endif
 
         jmp main_loop
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; init_bitmap
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc init_bitmap
+        ldx #0
+        lda #%10101010
+
+loop:
+        sta $3800,x
+        sta $3900,x
+        sta $3a00,x
+        sta $3b00,x
+        sta $3c00,x
+        sta $3d00,x
+        sta $3e00,x
+        sta $3f00,x
+        dex
+        bpl loop
+        rts
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; init_color_ram
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc init_color_ram
+        ldx #0
+loop_a:
+        lda __SCREEN_RAM_LOAD__,x               ; c logo has 360 chars (9*40). Paint 360 chars
+        tay
+        lda c_logo_colors,y
+        sta $d800,x
+
+        lda __SCREEN_RAM_LOAD__+104,x           ; second part (256 + 104 = 360)
+        tay
+        lda c_logo_colors,y
+        sta $d800+104,x
+
+        inx
+        bpl loop_a
+
+        ldx #0
+loop_b:
+        lda __SCREEN_RAM_LOAD__+9*40,x          ; maina has 360 chars (9*40), staring from char 360
+        tay
+        lda mania_colors,y
+        sta $d800+360,x
+
+        lda __SCREEN_RAM_LOAD__+9*40+104,x      ; second part (256 + 104 = 360)
+        tay
+        lda mania_colors,y
+        sta $d800+360+104,x
+
+        inx
+        bpl loop_b
+
+
+        lda #$01
+        ldx #0
+loop_c:
+        sta __SCREEN_RAM_LOAD__+19*40,x
+        sta __SCREEN_RAM_LOAD__+19*40+24,x
+        dex
+        bpl loop_c
+
+        rts
+.endproc
 
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
@@ -162,43 +229,6 @@ delay:
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-; init_color_ram
-;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-.proc init_color_ram
-        ldx #0
-loop_a:
-        lda __SCREEN_RAM_LOAD__,x                ; c logo has 360 chars (9*40). Paint 360 chars
-        tay
-        lda c_logo_colors,y
-        sta $d800,x
-
-        lda __SCREEN_RAM_LOAD__+104,x            ; second part (256 + 104 = 360)
-        tay
-        lda c_logo_colors,y
-        sta $d800+104,x
-
-        inx
-        bpl loop_a
-
-        ldx #0
-loop_b:
-        lda __SCREEN_RAM_LOAD__+360,x            ; maina has 360 chars (9*40), staring from char 360
-        tay
-        lda mania_colors,y
-        sta $d800+360,x
-
-        lda __SCREEN_RAM_LOAD__+360+104,x            ; second part (256 + 104 = 360)
-        tay
-        lda mania_colors,y
-        sta $d800+360+104,x
-
-        inx
-        bpl loop_b
-
-        rts
-.endproc
-
-;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; irq vectors
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc irq_a
@@ -210,17 +240,21 @@ loop_b:
 
         asl $d019                       ; clears raster interrupt
 
-        lda #0
-        sta $d021
         lda #14
         sta $d022
         lda #2
         sta $d023
 
+        lda #%00011000                  ; no scroll, multi-color, 40-cols
+        sta $d016
+
+        lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
+        sta $d011
+
         lda #%11001000                  ; screen ram: $3000 (%1100xxxx), charset addr: $2000 (%xxxx100x)
         sta $d018
 
-        lda #(50 + 9 * 8)               ; next irq at row 9
+        lda #(50 + 9 * 8 + 1)               ; next irq at row 9
         sta $d012
 
         ldx #<irq_b
@@ -245,8 +279,6 @@ loop_b:
 
         asl $d019                       ; clears raster interrupt
 
-        lda #0
-        sta $d021
         lda #11
         sta $d022
         lda #14
@@ -255,7 +287,41 @@ loop_b:
         lda #%11001010                  ; screen ram: $3000 (%1100xxxx), charset addr: $2800 (%xxxx101x)
         sta $d018
 
-        lda #50
+        lda #50 + 19 * 8
+        sta $d012
+
+        ldx #<irq_c
+        ldy #>irq_c
+        stx $fffe
+        sty $ffff
+
+        pla                             ; restores A, X, Y
+        tay
+        pla
+        tax
+        pla
+        rti                             ; restores previous PC, status
+.endproc
+
+.proc irq_c
+        pha                             ; saves A, X, Y
+        txa
+        pha
+        tya
+        pha
+
+        asl $d019                       ; clears raster interrupt
+
+        lda #%00111011                  ; bitmap mode, default scroll-Y position, 25-rows
+        sta $d011
+
+        lda #%11001000                  ; screen ram: $3000 (%1100xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
+        sta $d018
+
+        lda #%00001000                  ; no scroll, hires, 40-cols
+        sta $d016
+
+        lda #20
         sta $d012
 
         ldx #<irq_a
