@@ -190,9 +190,9 @@ loop_c:
 ; init_sprites
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc init_sprites
-        lda #%00000001                  ; enable sprite #0
+        lda #%00000011                  ; enable sprite #0, #1
         sta VIC_SPR_ENA
-        sta $d01c                       ; multi-color sprite #0
+        sta $d01c                       ; multi-color sprite #0,#1
 
         lda #0
         sta $d010                       ; no 8-bit on for sprites x
@@ -200,14 +200,19 @@ loop_c:
         sta $d01d                       ; no x double resolution
 
 
-        lda #24                         ; set x position
+        lda #182                        ; set x position
         sta VIC_SPR0_X
-        lda #220                        ; set y position
+        lda #162                        ; set x position
+        sta VIC_SPR1_X
+        lda #224                        ; set y position
         sta VIC_SPR0_Y
+        sta VIC_SPR1_Y
         lda #7                          ; set sprite color
         sta VIC_SPR0_COLOR
+        sta VIC_SPR1_COLOR
         lda #SPRITE0_POINTER            ; set sprite pointers
         sta __SCREEN_RAM_LOAD__ + $3f8
+        sta __SCREEN_RAM_LOAD__ + $3f9
 
         lda #0
         sta $d025
@@ -262,7 +267,7 @@ next:
         sta $fd
 
 
-        ; scroll top 8 bytes
+        ; scroll top 8 bytes (right to left, and left to right)
         ; YY = char rows
         ; SS = bitmap cols
         .repeat 8, YY
@@ -272,8 +277,18 @@ next:
                 dex
                 bpl :-
 
-                .repeat 40, SS
+                php                     ; save carry
+
+                ; right to left
+                .repeat 18, SS
                         rol BITMAP_ADDR + (39 - SS) * 8 + YY
+                .endrepeat
+
+                plp                     ; restore carry
+
+                ; left to right
+                .repeat 18, SS
+                        ror BITMAP_ADDR + SS * 8 + YY
                 .endrepeat
                 iny                     ; byte of the char
         .endrepeat
@@ -300,8 +315,16 @@ next:
                 dex
                 bpl :-
 
-                .repeat 40, SS
+                php
+
+                .repeat 18, SS
                         rol BITMAP_ADDR + 40 * 8 + (39 - SS) * 8 + YY
+                .endrepeat
+
+                plp
+
+                .repeat 18, SS
+                        ror BITMAP_ADDR + 40 * 8 + SS * 8 + YY
                 .endrepeat
                 iny                     ; byte of the char
         .endrepeat
@@ -313,11 +336,8 @@ next:
         bne l1
 
         ldx #0
-        clc
-        lda load_scroll_addr
-        adc #1
-        sta load_scroll_addr
-        bcc l1
+        inc load_scroll_addr
+        bne l1
         inc load_scroll_addr+1
 l1:
         stx bit_idx
@@ -340,8 +360,10 @@ anim:
         sta delay
 
         ldx sprite_frame_idx
-        lda sprite_frame,x
+        lda sprite_frame_spr0,x
         sta __SCREEN_RAM_LOAD__ + $3f8
+        lda sprite_frame_spr1,x
+        sta __SCREEN_RAM_LOAD__ + $3f9
 
         inx
         cpx #SPRITE_MAX_FRAMES
@@ -481,13 +503,17 @@ mania_colors:
 
 sprite_frame_idx:
         .byte 0
-sprite_frame:
+sprite_frame_spr0:
         .byte 208, 209, 210, 209
-SPRITE_MAX_FRAMES = * - sprite_frame
+sprite_frame_spr1:
+        .byte 211, 212, 213, 212
+SPRITE_MAX_FRAMES = * - sprite_frame_spr1
 
 scroll_text:
-        scrcode "...probando scroll... este scroll tiene que ser the 1x3 en vez de 1x2 asi el pacman se come la letra del medio y las de arriba y abajo se van por arriba... bueno, al menos esa es la idea."
-        scrcode " veamos si la puedo implementar."
+        scrcode "                *    *    *    *    *    *    "
+        scrcode "Probando un scroll espejo. No se si puede afectar el cerebro tratar de leer el scroll inverso."
+        scrcode "Pero a mi me duele la cabeza despues de un rato, pero encontre entretenido tratar de leer para atras."
+        scrcode "Bueno, despues trato de terminar la intro. Le falta mas boludeces y colores y esas cosas. chau. Feliz semana para todos!"
         .byte $ff
 
 
