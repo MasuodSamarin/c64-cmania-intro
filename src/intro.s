@@ -23,7 +23,7 @@
 ; Constants
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 DEBUG = 3                               ; rasterlines:1, music:2, all:3
-SPRITE0_POINTER = ($1c00 / 64)
+SPRITE0_POINTER = ($3400 / 64)
 
 INIT_MUSIC = $be00
 PLAY_MUSIC = $be20
@@ -75,11 +75,12 @@ PLAY_MUSIC = $be20
         lda $dd0d
         asl $d019
 
-        jsr init_sprites
-        jsr init_color_ram
-
         lda #1                          ; second song
         jsr INIT_MUSIC
+
+        jsr init_color_ram
+        jsr init_sprites
+
 
         cli
 
@@ -93,6 +94,7 @@ main_loop:
         inc $d020
 .endif
         jsr PLAY_MUSIC
+        jsr anim_sprite
 
 .if (::DEBUG & 2)
         dec $d020
@@ -115,16 +117,48 @@ main_loop:
         sta $d01d                       ; no x double resolution
 
 
-        lda #100                        ; set x position
+        lda #24                         ; set x position
         sta VIC_SPR0_X
-        lda #200                        ; set y position
+        lda #220                        ; set y position
         sta VIC_SPR0_Y
-        lda #1                          ; set sprite color
+        lda #7                          ; set sprite color
         sta VIC_SPR0_COLOR
         lda #SPRITE0_POINTER            ; set sprite pointers
         sta __SCREEN_RAM_LOAD__ + $3f8
 
+        lda #0
+        sta $d025
+        lda #10
+        sta $d026
+
         rts
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; anim_sprite
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc anim_sprite
+        dec delay
+        bmi anim
+        rts
+anim:
+        lda #5
+        sta delay
+
+        ldx sprite_frame_idx
+        lda sprite_frame,x
+        sta __SCREEN_RAM_LOAD__ + $3f8
+
+        inx
+        cpx #SPRITE_MAX_FRAMES
+        bne :+
+        ldx #0
+:
+        stx sprite_frame_idx
+        rts
+
+delay:
+        .byte 0
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
@@ -248,6 +282,12 @@ c_logo_colors:
         .incbin "c_logo-colors.bin"
 mania_colors:
         .incbin "mania-colors.bin"
+
+sprite_frame_idx:
+        .byte 0
+sprite_frame:
+        .byte 208, 209, 210, 209
+SPRITE_MAX_FRAMES = * - sprite_frame
 
 
 .segment "SPRITES"
