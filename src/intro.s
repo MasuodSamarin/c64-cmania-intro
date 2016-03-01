@@ -28,7 +28,7 @@ SPRITE0_POINTER = ($3400 / 64)
 INIT_MUSIC = $be00
 PLAY_MUSIC = $be20
 
-BITMAP_ADDR = $2000 + 8 * 40 * 22
+BITMAP_ADDR = $2000 + 8 * 40 * 20
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Macros
@@ -174,12 +174,14 @@ loop_b:
         bne loop_b
 
 
-        lda #$10
         ldx #0
 loop_c:
+        lda #$10                                ; white over black
         sta __SCREEN_RAM_LOAD__+19*40,x
+        lda #$b0                                ; dark gray over black
+        sta __SCREEN_RAM_LOAD__+22*40,x
         inx
-        cpx #(6*40)
+        cpx #(3*40)
         bne loop_c
 
         rts
@@ -193,18 +195,18 @@ loop_c:
         lda #%00000011                  ; enable sprite #0, #1
         sta VIC_SPR_ENA
         sta $d01c                       ; multi-color sprite #0,#1
+        sta $d017                       ; double y resolution
+        sta $d01d                       ; double x resolution
 
-        lda #0
-        sta $d010                       ; no 8-bit on for sprites x
-        sta $d017                       ; no y double resolution
-        sta $d01d                       ; no x double resolution
+        lda #%00000010
+        sta $d010                       ; 8-bit on for sprites x
 
 
-        lda #182                        ; set x position
+        lda #16                        ; set x position
         sta VIC_SPR0_X
-        lda #162                        ; set x position
+        lda #48                        ; set x position
         sta VIC_SPR1_X
-        lda #224                        ; set y position
+        lda #206                        ; set y position
         sta VIC_SPR0_Y
         sta VIC_SPR1_Y
         lda #7                          ; set sprite color
@@ -267,7 +269,7 @@ next:
         sta $fd
 
 
-        ; scroll top 8 bytes (right to left, and left to right)
+        ; scroll top 8 bytes 
         ; YY = char rows
         ; SS = bitmap cols
         .repeat 8, YY
@@ -277,19 +279,20 @@ next:
                 dex
                 bpl :-
 
-                php                     ; save carry
-
-                ; right to left
-                .repeat 18, SS
-                        rol BITMAP_ADDR + (39 - SS) * 8 + YY
+                php
+                .repeat 35, SS
+                        ; straight
+                        rol BITMAP_ADDR + (37 - SS) * 8 + YY
                 .endrepeat
 
-                plp                     ; restore carry
+                plp
 
-                ; left to right
-                .repeat 18, SS
-                        ror BITMAP_ADDR + SS * 8 + YY
+                .repeat 35, SS
+                        ; reflection
+                        rol BITMAP_ADDR + 320 * 3 + (37 - SS) * 8 + (7-YY)
                 .endrepeat
+
+
                 iny                     ; byte of the char
         .endrepeat
 
@@ -317,14 +320,15 @@ next:
 
                 php
 
-                .repeat 18, SS
-                        rol BITMAP_ADDR + 40 * 8 + (39 - SS) * 8 + YY
+                .repeat 35, SS
+                        rol BITMAP_ADDR + 40 * 8 + (37 - SS) * 8 + YY
                 .endrepeat
 
                 plp
 
-                .repeat 18, SS
-                        ror BITMAP_ADDR + 40 * 8 + SS * 8 + YY
+                .repeat 35, SS
+                        ; reflection
+                        rol BITMAP_ADDR + 320 * 2 + (37 - SS) * 8 + (7-YY)
                 .endrepeat
                 iny                     ; byte of the char
         .endrepeat
@@ -493,6 +497,7 @@ delay:
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; global variables
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.segment "MORECODE"
 sync_music:        .byte 0                 ; boolean
 sync_anims:        .byte 0                 ; boolean
 
@@ -511,9 +516,8 @@ SPRITE_MAX_FRAMES = * - sprite_frame_spr1
 
 scroll_text:
         scrcode "                *    *    *    *    *    *    "
-        scrcode "Probando un scroll espejo. No se si puede afectar el cerebro tratar de leer el scroll inverso."
-        scrcode "Pero a mi me duele la cabeza despues de un rato, pero encontre entretenido tratar de leer para atras."
-        scrcode "Bueno, despues trato de terminar la intro. Le falta mas boludeces y colores y esas cosas. chau. Feliz semana para todos!"
+        scrcode " Probando scroll con reflejo... todavia le falta hacer la parte de que se mueva el aguita... ese efectito con el seno y demas"
+        scrcode ". Despues se lo agrego y vemos como queda. "
         .byte $ff
 
 
