@@ -501,7 +501,7 @@ sine_tmp: .byte 0
         lda #%11001000                  ; screen ram: $3000 (%1100xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
         sta $d018
 
-        lda #%00001000                  ; no scroll, hires, 40-cols
+        lda #%00001011                  ; no scroll, hires, 40-cols. x scroll: mid
         sta $d016
 
         lda #226
