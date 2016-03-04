@@ -12,23 +12,27 @@
 ; c64 helpers
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .macpack cbm                            ; adds support for scrcode
+.macpack mymacros                       ; stable raster
 .include "c64.inc"                      ; c64 constants
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Imports/Exports
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-.import __SPRITES_LOAD__, __SCREEN_RAM_LOAD__
+.import __SPRITES_LOAD__, __SCREEN_RAM_LOAD__, __CHARSET_FONT_LOAD__
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Constants
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 DEBUG = 0                               ; rasterlines:1, music:2, all:3
-SPRITE0_POINTER = ($3400 / 64)
+SPRITE0_POINTER = <((__SPRITES_LOAD__ .MOD $4000) / 64)
 
 INIT_MUSIC = $be00
 PLAY_MUSIC = $be20
 
-BITMAP_ADDR = $2000 + 8 * 40 * 20
+BITMAP_ADDR = $6000
+
+SCROLL_TEXT_ADDR = __SCREEN_RAM_LOAD__ + 21 * 40
+SCROLL_BITMAP_ADDR = BITMAP_ADDR + 23 * 320
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Macros
@@ -39,9 +43,9 @@ BITMAP_ADDR = $2000 + 8 * 40 * 20
         lda #$35                        ; no basic, no kernal
         sta $01
 
-        lda $dd00                       ; Vic bank 0: $0000-$3FFF
+        lda $dd00                       ; Vic bank 1: $4000-$7FFF
         and #$fc
-        ora #3
+        ora #2
         sta $dd00
 
         lda #0
@@ -108,7 +112,8 @@ next_1:
 .endif
         dec sync_anims
         jsr anim_sprite
-        jsr anim_scroll
+        jsr anim_scroll_charset
+        jsr anim_scroll_bitmap
         jsr cycle_sine_table
 .if (::DEBUG & 1)
         dec $d020
@@ -117,28 +122,6 @@ next_1:
 next_2:
 
         jmp main_loop
-
-;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-; init_bitmap
-;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-.proc init_bitmap
-        ldx #0
-        lda #0
-
-loop:
-        sta $3700,x
-        sta $3800,x
-        sta $3900,x
-        sta $3a00,x
-        sta $3b00,x
-        sta $3c00,x
-        sta $3d00,x
-        sta $3e00,x
-        sta $3f00,x
-        dex
-        bne loop
-        rts
-.endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; init_color_ram
@@ -174,16 +157,22 @@ loop_b:
         dex
         bne loop_b
 
+        ldx #0                                  ; paint the rest with white
+        lda #1
+loop_c:
+        sta $d800 + 18 * 40,x
+        sta $d800 + 18 * 40 + 24,x
+        dex
+        bne loop_c
+
 
         ldx #0
-loop_c:
-        lda #$10                                ; white over black
-        sta __SCREEN_RAM_LOAD__+19*40,x
+loop_d:
         lda #$b0                                ; dark gray over black
-        sta __SCREEN_RAM_LOAD__+22*40,x
+        sta __SCREEN_RAM_LOAD__+23*40,x
         inx
-        cpx #(3*40)
-        bne loop_c
+        cpx #(2*40)
+        bne loop_d
 
         rts
 .endproc
@@ -193,59 +182,136 @@ loop_c:
 ; init_sprites
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc init_sprites
-        lda #%00000011                  ; enable sprite #0, #1
+        lda #%00001111                  ; enable some sprites
         sta VIC_SPR_ENA
+        lda #%00000011
         sta $d01c                       ; multi-color sprite #0,#1
 
-        lda #0
+        lda #%00000000
         sta $d017                       ; double y resolution
         sta $d01d                       ; double x resolution
 
-        lda #%00000010
+        lda #%00001010
         sta $d010                       ; 8-bit on for sprites x
 
 
-        lda #30                        ; set x position
+        lda #34                        ; set x position
         sta VIC_SPR0_X
-        lda #60                        ; set x position
+        lda #28                        ; set x position
+        sta VIC_SPR2_X
+        lda #52                        ; set x position
         sta VIC_SPR1_X
-        lda #208                        ; set y position
+        lda #58                        ; set x position
+        sta VIC_SPR3_X
+        lda #216                       ; set y position
         sta VIC_SPR0_Y
         sta VIC_SPR1_Y
+        lda #214                       ; set y position
+        sta VIC_SPR2_Y
+        sta VIC_SPR3_Y
         lda #7                          ; set sprite color
         sta VIC_SPR0_COLOR
         sta VIC_SPR1_COLOR
+        lda #0
+        sta VIC_SPR2_COLOR
+        sta VIC_SPR3_COLOR
         lda #SPRITE0_POINTER            ; set sprite pointers
         sta __SCREEN_RAM_LOAD__ + $3f8
         sta __SCREEN_RAM_LOAD__ + $3f9
+        lda #SPRITE0_POINTER + 6        ; set sprite pointers
+        sta __SCREEN_RAM_LOAD__ + $3fa
+        sta __SCREEN_RAM_LOAD__ + $3fb
 
         lda #0
-        sta $d025
+        sta $d025                       ; sprite multicolor #0
         lda #10
-        sta $d026
+        sta $d026                       ; sprite multicolor #1
 
         rts
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-; anim_scroll
+; init_bitmap
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc init_bitmap
+        ldx #0
+        lda #0
+
+loop:
+        sta BITMAP_ADDR,x                 ; init the last 960 pixels (320 * 3)
+        sta BITMAP_ADDR + 320,x
+        sta BITMAP_ADDR + 320 - 64 ,x
+        dex
+        bne loop
+        rts
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; anim_scroll_charset
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc anim_scroll_charset
+        ; speed control
+        dec scroll_x
+        php
+
+        lda scroll_x
+        and #07
+        sta scroll_x
+
+        plp
+        bmi do_scroll
+        rts
+
+do_scroll:
+        ldx #0
+loop:   lda SCROLL_TEXT_ADDR + 1,x                      ; scroll top part of 1x2 char
+        sta SCROLL_TEXT_ADDR,x
+        lda SCROLL_TEXT_ADDR + 40 + 1,x                 ; scroll bottom part of 1x2 char
+        sta SCROLL_TEXT_ADDR + 40,x
+        inx
+        cpx #39
+        bne loop
+
+        ; put next char in column 40
+        ldx scroll_idx
+        lda scroll_text,x
+        cmp #$ff
+        bne @2
+
+        ; reached $ff ? Then start from the beginning
+        ldx #0
+        stx scroll_idx
+        lda scroll_text
+
+@2:     sta SCROLL_TEXT_ADDR + 39                       ; top part of the 1x2 char
+        ora #$80                                        ; bottom part is 128 chars ahead in the charset
+        sta SCROLL_TEXT_ADDR + 40 +39                   ; bottom part of the 1x2 char
+        inx
+        stx scroll_idx
+
+endscroll:
+        rts
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; anim_scroll_bitmap
 ; uses $fa-$ff as temp variables
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-.proc anim_scroll
+.proc anim_scroll_bitmap
 
         ; uses fa-ff
         lda #0
         sta $fa                         ; tmp variable
 
-        ldx #<charset
-        ldy #>charset
+        ldx #<__CHARSET_FONT_LOAD__
+        ldy #>__CHARSET_FONT_LOAD__
         stx $fc
         sty $fd                         ; pointer to charset
 
 load_scroll_addr = * + 1
-        lda scroll_text                 ; self-modifying
-        cmp #$ff
-        bne next
+        lda scroll_text_bitmap          ; self-modifying.1st address is 3 chars
+        cmp #$ff                        ; before initial address in order to sync with
+        bne next                        ; the charset scroll.
         ldx #0
         stx bit_idx
         ldx #<scroll_text
@@ -282,17 +348,9 @@ next:
                 dex
                 bpl :-
 
-                php
-                .repeat 34, SS
-                        ; straight
-                        rol BITMAP_ADDR + (36 - SS) * 8 + YY
-                .endrepeat
-
-                plp
-
                 .repeat 34, SS
                         ; reflection
-                        rol BITMAP_ADDR + 320 * 3 + (36 - SS) * 8 + (7-YY)
+                        rol SCROLL_BITMAP_ADDR + 320 + (35 - SS) * 8 + (7-YY)
                 .endrepeat
 
 
@@ -321,17 +379,9 @@ next:
                 dex
                 bpl :-
 
-                php
-
-                .repeat 34, SS
-                        rol BITMAP_ADDR + 40 * 8 + (36 - SS) * 8 + YY
-                .endrepeat
-
-                plp
-
                 .repeat 34, SS
                         ; reflection
-                        rol BITMAP_ADDR + 320 * 2 + (36 - SS) * 8 + (7-YY)
+                        rol SCROLL_BITMAP_ADDR + (35 - SS) * 8 + (7-YY)
                 .endrepeat
                 iny                     ; byte of the char
         .endrepeat
@@ -430,10 +480,10 @@ sine_tmp: .byte 0
         lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%11001000                  ; screen ram: $3000 (%1100xxxx), charset addr: $2000 (%xxxx100x)
+        lda #%01100000                  ; screen ram: $1800 (%0110xxxx), charset addr: $0000 (%xxxx000x)
         sta $d018
 
-        lda #(50 + 9 * 8 + 1)               ; next irq at row 9
+        lda #(50 + 9 * 8 + 1)           ; next irq at row 9
         sta $d012
 
         ldx #<irq_b
@@ -465,10 +515,10 @@ sine_tmp: .byte 0
         lda #14
         sta $d023
 
-        lda #%11001010                  ; screen ram: $3000 (%1100xxxx) (unchanged), charset addr: $2800 (%xxxx101x)
+        lda #%01100010                  ; screen ram: $1800 (%0110xxxx) (unchanged), charset addr: $0800 (%xxxx001x)
         sta $d018
 
-        lda #50 + 19 * 8 + 2
+        lda #50 + 21 * 8
         sta $d012
 
         ldx #<irq_c
@@ -495,23 +545,19 @@ sine_tmp: .byte 0
 
         asl $d019                       ; clears raster interrupt
 
-        lda #%00111011                  ; bitmap mode, default scroll-Y position, 25-rows
-        sta $d011
-
-        lda #%11001000                  ; screen ram: $3000 (%1100xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
+        lda #%01100100                  ; screen ram: $1800 (%0110xxxx) (unchanged), charset addr: $1000 (%xxxx010x)
         sta $d018
 
-        lda #%00001011                  ; no scroll, hires, 40-cols. x scroll: mid
+        lda scroll_x                    ; x position
         sta $d016
 
-        lda #226
+        lda #50 + 23 * 8 - 2
         sta $d012
 
         ldx #<irq_d
         ldy #>irq_a
         stx $fffe
         sty $ffff
-
 
         pla                             ; restores A, X, Y
         tay
@@ -530,10 +576,21 @@ sine_tmp: .byte 0
 
         asl $d019                       ; clears raster interrupt
 
+        STABILIZE_RASTER
+
+        .repeat 14
+                nop
+        .endrepeat
+
+        lda #%00111011                  ; bitmap mode, default scroll-Y position, 25-rows
+        sta $d011
+
+        lda #%01101000                  ; screen ram: $1800 (%0110xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
+        sta $d018
 
         .repeat 16, YY
 :               lda $d012
-                cmp #(227+YY)
+                cmp #(50 + 23 * 8+YY+2)
                 bne :-
                 lda sine_table + YY
                 sta $d016
@@ -542,7 +599,7 @@ sine_tmp: .byte 0
 .endif
         .endrepeat
 
-        lda #250
+        lda #254
         sta $d012
 
         ldx #<irq_a
@@ -559,11 +616,6 @@ sine_tmp: .byte 0
         rti                             ; restores previous PC, status
 .endproc
 
-
-;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-; global variables
-;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-.segment "MORECODE"
 sync_music:        .byte 0                 ; boolean
 sync_anims:        .byte 0                 ; boolean
 
@@ -575,16 +627,22 @@ mania_colors:
 sprite_frame_idx:
         .byte 0
 sprite_frame_spr0:
-        .byte 208, 209, 210, 209
+        .byte SPRITE0_POINTER, SPRITE0_POINTER+1, SPRITE0_POINTER+2, SPRITE0_POINTER+1
 sprite_frame_spr1:
-        .byte 211, 212, 213, 212
+        .byte SPRITE0_POINTER+3, SPRITE0_POINTER+4, SPRITE0_POINTER+5, SPRITE0_POINTER+4
 SPRITE_MAX_FRAMES = * - sprite_frame_spr1
 
+scroll_text_bitmap:
+        scrcode "    "                   ; bitmap stars 3 chars after
 scroll_text:
         scrcode "                *    *    *    *    *    *    "
         scrcode " Probando scroll con reflejo... todavia le falta hacer la parte de que se mueva el aguita... ese efectito con el seno y demas"
         scrcode ". Despues se lo agrego y vemos como queda. "
         .byte $ff
+scroll_idx:
+        .byte 0                         ; scroll inx
+scroll_x:
+        .byte 4                         ; $d016 value for charset scroll
 
 sine_table:
 ; autogenerated table: easing_table_generator.py -s64 -m7 -aTrue -r easeInOutSine
@@ -608,11 +666,6 @@ sine_table:
 SINE_TABLE_SIZE = * - sine_table
 
 
-; charset to be used for sprites here
-charset:
-        .incbin "font_caren_1x2-charset.bin"
-
-
 .segment "SPRITES"
 .incbin "sprites.bin"
 
@@ -624,6 +677,9 @@ charset:
 
 .segment "CHARSET_MANIA"
 .incbin "mania-charset.bin"
+
+.segment "CHARSET_FONT"
+.incbin "font_caren_1x2-charset.bin"
 
 .segment "SCREEN_RAM"
 .include "screen_ram.s"
