@@ -22,7 +22,7 @@
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Constants
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-DEBUG = 3                               ; rasterlines:1, music:2, all:3
+DEBUG = 0                               ; rasterlines:1, music:2, all:3
 SPRITE0_POINTER = ($3400 / 64)
 
 INIT_MUSIC = $be00
@@ -468,7 +468,7 @@ sine_tmp: .byte 0
         lda #%11001010                  ; screen ram: $3000 (%1100xxxx) (unchanged), charset addr: $2800 (%xxxx101x)
         sta $d018
 
-        lda #50 + 19 * 8
+        lda #50 + 19 * 8 + 2
         sta $d012
 
         ldx #<irq_c
@@ -537,7 +537,9 @@ sine_tmp: .byte 0
                 bne :-
                 lda sine_table + YY
                 sta $d016
+.if (::DEBUG & 1)
                 sta $d020
+.endif
         .endrepeat
 
         lda #250
