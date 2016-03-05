@@ -23,7 +23,7 @@
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Constants
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-DEBUG = 0                               ; rasterlines:1, music:2, all:3
+DEBUG = 0                               ; rasterlines:1, music:2, sine:4 all:7
 SPRITE0_POINTER = <((__SPRITES_LOAD__ .MOD $4000) / 64)
 
 INIT_MUSIC = $be00
@@ -59,7 +59,7 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 23 * 320
         lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%11001000                  ; screen ram: $3000 (%1100xxxx), charset addr: $2000 (%xxxx100x)
+        lda #%01000000                  ; screen ram: $1000 (%0100xxxx), charset addr: $0000 (%xxxx000x)
         sta $d018
 
         lda #$7f                        ; turn off cia interrups
@@ -91,32 +91,29 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 23 * 320
         cli
 
 main_loop:
-        lda sync_music                  ; raster triggered ?
-        beq next_1
+        lda sync_raster                  ; raster triggered ?
+        beq main_loop
+
+        dec sync_raster
 
 .if (::DEBUG & 2)
         inc $d020
 .endif
-        dec sync_music
         jsr PLAY_MUSIC
 .if (::DEBUG & 2)
         dec $d020
 .endif
 
-next_1:
-        lda sync_anims
-        beq next_2
 
 .if (::DEBUG & 1)
-        inc $d020
+        dec $d020
 .endif
-        dec sync_anims
         jsr anim_sprite
         jsr anim_scroll_charset
         jsr anim_scroll_bitmap
         jsr cycle_sine_table
 .if (::DEBUG & 1)
-        dec $d020
+        inc $d020
 .endif
 
 next_2:
@@ -131,36 +128,27 @@ next_2:
 loop_a:
         lda __SCREEN_RAM_LOAD__,x               ; c logo has 360 chars (9*40). Paint 360 chars
         tay
-        lda c_logo_colors,y
+        lda logofinal_colors,y
         sta $d800,x
 
-        lda __SCREEN_RAM_LOAD__+104,x           ; second part (256 + 104 = 360)
+        lda __SCREEN_RAM_LOAD__+256,x           ; c logo has 360 chars (9*40). Paint 360 chars
         tay
-        lda c_logo_colors,y
-        sta $d800+104,x
+        lda logofinal_colors,y
+        sta $d800+256,x
+
+        lda __SCREEN_RAM_LOAD__+256+256-214,x   ; second part (256 + 104 = 360)
+        tay
+        lda logofinal_colors,y
+        sta $d800+256+256-214,x
 
         dex
         bne loop_a
 
-        ldx #0
-loop_b:
-        lda __SCREEN_RAM_LOAD__+9*40,x          ; maina has 360 chars (9*40), staring from char 360
-        tay
-        lda mania_colors,y
-        sta $d800+360,x
-
-        lda __SCREEN_RAM_LOAD__+9*40+104,x      ; second part (256 + 104 = 360)
-        tay
-        lda mania_colors,y
-        sta $d800+360+104,x
-
-        dex
-        bne loop_b
 
         ldx #0                                  ; paint the rest with white
         lda #1
 loop_c:
-        sta $d800 + 18 * 40,x
+        sta $d800 + 18 * 40,x                   ; 7 lines. 7 * 40 = 280 = 256 + 24
         sta $d800 + 18 * 40 + 24,x
         dex
         bne loop_c
@@ -171,7 +159,7 @@ loop_d:
         lda #$b0                                ; dark gray over black
         sta __SCREEN_RAM_LOAD__+23*40,x
         inx
-        cpx #(2*40)
+        cpx #2*40
         bne loop_d
 
         rts
@@ -348,7 +336,7 @@ next:
                 dex
                 bpl :-
 
-                .repeat 34, SS
+                .repeat 33, SS
                         ; reflection
                         rol SCROLL_BITMAP_ADDR + 320 + (35 - SS) * 8 + (7-YY)
                 .endrepeat
@@ -379,12 +367,16 @@ next:
                 dex
                 bpl :-
 
-                .repeat 34, SS
+                .repeat 33, SS
                         ; reflection
                         rol SCROLL_BITMAP_ADDR + (35 - SS) * 8 + (7-YY)
                 .endrepeat
                 iny                     ; byte of the char
         .endrepeat
+
+        .repeat 100
+                nop                     ; WTF??? If don't add this, it crashes.
+        .endrepeat                      ; for some reason, I need to consume some cycles
 
 
         ldx bit_idx
@@ -471,7 +463,7 @@ sine_tmp: .byte 0
 
         lda #14
         sta $d022
-        lda #2
+        lda #3
         sta $d023
 
         lda #%00011000                  ; no scroll, multi-color, 40-cols
@@ -480,45 +472,10 @@ sine_tmp: .byte 0
         lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%01100000                  ; screen ram: $1800 (%0110xxxx), charset addr: $0000 (%xxxx000x)
+        lda #%01000000                  ; screen ram: $1000 (%0100xxxx), charset addr: $0000 (%xxxx000x)
         sta $d018
 
-        lda #(50 + 9 * 8 + 1)           ; next irq at row 9
-        sta $d012
-
-        ldx #<irq_b
-        ldy #>irq_b
-        stx $fffe
-        sty $ffff
-
-        inc sync_anims
-
-        pla                             ; restores A, X, Y
-        tay
-        pla
-        tax
-        pla
-        rti                             ; restores previous PC, status
-.endproc
-
-.proc irq_b
-        pha                             ; saves A, X, Y
-        txa
-        pha
-        tya
-        pha
-
-        asl $d019                       ; clears raster interrupt
-
-        lda #11
-        sta $d022
-        lda #14
-        sta $d023
-
-        lda #%01100010                  ; screen ram: $1800 (%0110xxxx) (unchanged), charset addr: $0800 (%xxxx001x)
-        sta $d018
-
-        lda #50 + 21 * 8
+        lda #50 + 8 * 21               ; next irq at row 9
         sta $d012
 
         ldx #<irq_c
@@ -526,7 +483,7 @@ sine_tmp: .byte 0
         stx $fffe
         sty $ffff
 
-        inc sync_music
+        inc sync_raster
 
         pla                             ; restores A, X, Y
         tay
@@ -545,7 +502,7 @@ sine_tmp: .byte 0
 
         asl $d019                       ; clears raster interrupt
 
-        lda #%01100100                  ; screen ram: $1800 (%0110xxxx) (unchanged), charset addr: $1000 (%xxxx010x)
+        lda #%01000010                  ; screen ram: $1000 (%0100xxxx) (unchanged), charset addr: $0800 (%xxxx001x)
         sta $d018
 
         lda scroll_x                    ; x position
@@ -585,7 +542,7 @@ sine_tmp: .byte 0
         lda #%00111011                  ; bitmap mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%01101000                  ; screen ram: $1800 (%0110xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
+        lda #%01001000                  ; screen ram: $1000 (%0100xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
         sta $d018
 
         .repeat 16, YY
@@ -594,10 +551,14 @@ sine_tmp: .byte 0
                 bne :-
                 lda sine_table + YY
                 sta $d016
-.if (::DEBUG & 1)
+.if (::DEBUG & 4)
                 sta $d020
 .endif
         .endrepeat
+.if (::DEBUG & 4)
+        lda #0
+        sta $d020
+.endif
 
         lda #254
         sta $d012
@@ -616,13 +577,10 @@ sine_tmp: .byte 0
         rti                             ; restores previous PC, status
 .endproc
 
-sync_music:        .byte 0                 ; boolean
-sync_anims:        .byte 0                 ; boolean
+sync_raster:        .byte 0                 ; boolean
 
-c_logo_colors:
-        .incbin "c_logo-colors.bin"
-mania_colors:
-        .incbin "mania-colors.bin"
+logofinal_colors:
+        .incbin "logofinal-colors.bin"
 
 sprite_frame_idx:
         .byte 0
@@ -665,6 +623,14 @@ sine_table:
 .byte   0,  0,  0,  0,  0,  0,  0,  0
 SINE_TABLE_SIZE = * - sine_table
 
+.segment "CHARSET_LOGO"
+.incbin "logofinal-charset.bin"
+
+.segment "CHARSET_FONT"
+.incbin "font_caren_1x2-charset.bin"
+
+.segment "SCREEN_RAM"
+.include "logofinal-map.s"
 
 .segment "SPRITES"
 .incbin "sprites.bin"
@@ -672,15 +638,5 @@ SINE_TABLE_SIZE = * - sine_table
 .segment "SIDMUSIC"
 .incbin "sanxion.sid", $7e
 
-.segment "CHARSET_LOGO"
-.incbin "c_logo-charset.bin"
 
-.segment "CHARSET_MANIA"
-.incbin "mania-charset.bin"
-
-.segment "CHARSET_FONT"
-.incbin "font_caren_1x2-charset.bin"
-
-.segment "SCREEN_RAM"
-.include "screen_ram.s"
 
