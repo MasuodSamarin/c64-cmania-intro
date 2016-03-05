@@ -95,7 +95,11 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
         cli
 
 main_loop:
-        lda sync_raster                  ; raster triggered ?
+        lda $dc01                       ; space pressed
+        cmp #$ef
+        bne :+
+        jmp exit
+:       lda sync_raster                  ; raster triggered ?
         beq main_loop
 
         dec sync_raster
@@ -125,6 +129,17 @@ main_loop:
 next_2:
 
         jmp main_loop
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; exit 
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc exit
+        lda #0
+        sta $d011                               ; blank screen
+        lda #$37                                ; exit routine
+        sta $01                                 ; add here linker to next routine
+        jmp 64738
+.endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; init_color_ram
@@ -418,7 +433,7 @@ label_out:
 @end:
         rts
 
-label_mode: .byte LABEL_MODE_PRINT
+label_mode: .byte LABEL_MODE_DELAY
 label_in_idx: .byte 7
 label_delay_counter: .byte 0
 label_print_idx: .byte 0
