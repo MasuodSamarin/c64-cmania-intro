@@ -31,8 +31,11 @@ PLAY_MUSIC = $be20
 
 BITMAP_ADDR = $6000
 
-SCROLL_TEXT_ADDR = __SCREEN_RAM_LOAD__ + 21 * 40
-SCROLL_BITMAP_ADDR = BITMAP_ADDR + 23 * 320
+LABEL_TEXT_ROW = 17
+SCROLL_TEXT_ROW = 20
+SCROLL_TEXT_ADDR = __SCREEN_RAM_LOAD__ + 40 * SCROLL_TEXT_ROW
+SCROLL_BITMAP_ROW = 22
+SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Macros
@@ -87,6 +90,7 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 23 * 320
         jsr init_color_ram
         jsr init_sprites
         jsr init_bitmap
+        jsr init_charset
 
         cli
 
@@ -111,6 +115,7 @@ main_loop:
         jsr anim_sprite
         jsr anim_scroll_charset
         jsr anim_scroll_bitmap
+        jsr anim_labels
         jsr cycle_sine_table
 .if (::DEBUG & 1)
         inc $d020
@@ -144,6 +149,15 @@ loop_a:
         dex
         bne loop_a
 
+        ;
+        ldx #39
+        lda #$0b                                ; color
+loop_b:
+        sta $d800 + 40 * LABEL_TEXT_ROW,x
+        dex
+        bpl loop_b
+
+        ;
 
         ldx #0                                  ; paint the rest with white
         lda #1
@@ -157,9 +171,9 @@ loop_c:
         ldx #0
 loop_d:
         lda #$b0                                ; dark gray over black
-        sta __SCREEN_RAM_LOAD__+23*40,x
+        sta __SCREEN_RAM_LOAD__ + 40 * SCROLL_BITMAP_ROW,x
         inx
-        cpx #2*40
+        cpx #3*40
         bne loop_d
 
         rts
@@ -191,10 +205,10 @@ loop_d:
         sta VIC_SPR1_X
         lda #58                        ; set x position
         sta VIC_SPR3_X
-        lda #216                       ; set y position
+        lda #208                       ; set y position
         sta VIC_SPR0_Y
         sta VIC_SPR1_Y
-        lda #214                       ; set y position
+        lda #206                       ; set y position
         sta VIC_SPR2_Y
         sta VIC_SPR3_Y
         lda #7                          ; set sprite color
@@ -235,6 +249,143 @@ loop:
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; init_bitmap
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc init_charset
+        ldx #0
+        ldy #0
+
+loop:
+        lda __CHARSET_FONT_LOAD__ + 128 * 8,x           ; copy 64 chars (64 * 8 = 512)
+        sta charset_copy,x
+        tya
+        sta __CHARSET_FONT_LOAD__ + 128 * 8,x
+
+        lda __CHARSET_FONT_LOAD__ + 128 * 8 + 256,x
+        sta charset_copy + 256,x
+        tya
+        sta __CHARSET_FONT_LOAD__ + 128 * 8 + 256,x
+        dex
+        bne loop
+
+        rts
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; anim_labels
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc anim_labels
+
+LABEL_MODE_PRINT = 0            ; prints using empty charset
+LABEL_MODE_IN = 1               ; then charset is updated
+LABEL_MODE_DELAY = 2            ; then delay
+LABEL_MODE_OUT = 3              ; then fadeout the charset, and it starts again
+
+        lda label_mode
+        beq print_label
+        cmp #LABEL_MODE_IN
+        beq in_label
+        cmp #LABEL_MODE_OUT
+        beq out_label
+        cmp #LABEL_MODE_DELAY
+        beq delay_label
+        rts
+
+in_label:       jmp label_in
+out_label:      jmp label_out
+print_label:    jmp label_print
+delay_label:    jmp label_delay
+
+
+label_print:
+        lda #LABEL_MODE_IN              ; next mode
+        sta label_mode
+
+        lda label_print_idx
+        asl
+        tay
+        lda labels_addr,y
+        sta @l_addr
+        lda labels_addr+1,y
+        sta @l_addr+1
+
+        ldx #39
+@loop:
+
+@l_addr = * + 1
+        lda labels,x                    ; self modifying
+        ora #$80
+        sta __SCREEN_RAM_LOAD__ + 40 * LABEL_TEXT_ROW,x
+        dex
+        bpl @loop
+
+        inc label_print_idx
+        lda label_print_idx
+        cmp #TOTAL_LABELS
+        bne :+
+        lda #0
+        sta label_print_idx
+:
+        rts
+
+
+label_in:
+        ldx label_in_idx
+
+        .repeat 64, XX
+                .repeat 7, YY
+                        lda __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 6 - YY
+                        sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 7 - YY
+                .endrepeat
+                lda charset_copy + 8 * XX,x
+                sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX
+        .endrepeat
+
+        dec label_in_idx
+        bpl @end
+        lda #7
+        sta label_in_idx
+        lda #LABEL_MODE_DELAY
+        sta label_mode
+@end:
+        rts
+
+label_delay:
+        dec label_delay_counter
+        bne :+
+        lda #LABEL_MODE_OUT
+        sta label_mode
+:       rts
+
+label_out:
+        ldx label_in_idx
+
+        .repeat 64, XX
+                .repeat 7, YY
+                        lda __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 6 - YY
+                        sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 7 - YY
+                .endrepeat
+                lda #0
+                sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX
+        .endrepeat
+
+        dec label_in_idx
+        bpl @end
+        lda #7
+        sta label_in_idx
+        lda #LABEL_MODE_PRINT
+        sta label_mode
+@end:
+        rts
+
+label_mode: .byte LABEL_MODE_PRINT
+label_in_idx: .byte 7
+label_delay_counter: .byte 0
+label_print_idx: .byte 0
+
+.endproc
+        
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; anim_scroll_charset
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc anim_scroll_charset
@@ -261,21 +412,25 @@ loop:   lda SCROLL_TEXT_ADDR + 1,x                      ; scroll top part of 1x2
         bne loop
 
         ; put next char in column 40
-        ldx scroll_idx
-        lda scroll_text,x
+scroll_addr = * + 1
+        lda scroll_text                                 ; self modifying
         cmp #$ff
         bne @2
 
         ; reached $ff ? Then start from the beginning
-        ldx #0
-        stx scroll_idx
-        lda scroll_text
+        lda #<scroll_text
+        sta scroll_addr
+        lda #>scroll_text
+        sta scroll_addr+1
+        lda scroll_text                                 ; self modifying
 
 @2:     sta SCROLL_TEXT_ADDR + 39                       ; top part of the 1x2 char
-        ora #$80                                        ; bottom part is 128 chars ahead in the charset
-        sta SCROLL_TEXT_ADDR + 40 +39                   ; bottom part of the 1x2 char
-        inx
-        stx scroll_idx
+        ora #$40                                        ; bottom part is 128 chars ahead in the charset
+        sta SCROLL_TEXT_ADDR + 40 + 39                  ; bottom part of the 1x2 char
+
+        inc scroll_addr
+        bne endscroll
+        inc scroll_addr+1
 
 endscroll:
         rts
@@ -329,16 +484,49 @@ next:
         ; scroll top 8 bytes 
         ; YY = char rows
         ; SS = bitmap cols
-        .repeat 8, YY
+        .repeat 4, YY
                 lda ($fc),y
                 ldx bit_idx             ; set C according to the current bit index
 :               asl
                 dex
                 bpl :-
 
+                php
                 .repeat 33, SS
                         ; reflection
-                        rol SCROLL_BITMAP_ADDR + 320 + (35 - SS) * 8 + (7-YY)
+                        rol SCROLL_BITMAP_ADDR + 320 * 2 + (35 - SS) * 8 + 7 - (YY * 2)
+                .endrepeat
+                plp
+
+                .repeat 33, SS
+                        ; reflection
+                        rol SCROLL_BITMAP_ADDR + 320 * 2 + (35 - SS) * 8 + 7 - (YY * 2 + 1)
+                .endrepeat
+
+
+                iny                     ; byte of the char
+        .endrepeat
+
+        ; scroll top 8 bytes 
+        ; YY = char rows
+        ; SS = bitmap cols
+        .repeat 4, YY
+                lda ($fc),y
+                ldx bit_idx             ; set C according to the current bit index
+:               asl
+                dex
+                bpl :-
+
+                php
+                .repeat 33, SS
+                        ; reflection
+                        rol SCROLL_BITMAP_ADDR + 320 * 1 + (35 - SS) * 8 + 7 - (YY * 2)
+                .endrepeat
+                plp
+
+                .repeat 33, SS
+                        ; reflection
+                        rol SCROLL_BITMAP_ADDR + 320 * 1 + (35 - SS) * 8 + 7 - (YY * 2 + 1)
                 .endrepeat
 
 
@@ -348,11 +536,11 @@ next:
 
         ; fetch bottom part of the char
         ; and repeat the same thing
-        ; which is 1024 chars appart from the previous.
+        ; which is 512 chars appart from the previous.
         ; so, I only have to add #4 to $fd
         clc
         lda $fd
-        adc #04                         ; the same thing as adding 1024
+        adc #02                         ; the same thing as adding 512
         sta $fd
 
         ldy $fb                         ; restore Y from tmp variable
@@ -373,10 +561,6 @@ next:
                 .endrepeat
                 iny                     ; byte of the char
         .endrepeat
-
-        .repeat 100
-                nop                     ; WTF??? If don't add this, it crashes.
-        .endrepeat                      ; for some reason, I need to consume some cycles
 
 
         ldx bit_idx
@@ -475,15 +659,95 @@ sine_tmp: .byte 0
         lda #%01000000                  ; screen ram: $1000 (%0100xxxx), charset addr: $0000 (%xxxx000x)
         sta $d018
 
-        lda #50 + 8 * 21               ; next irq at row 9
+        lda #50 + 8 * 16 + 2            ; next irq at row 16
+        sta $d012
+
+        ldx #<irq_b
+        ldy #>irq_b
+        stx $fffe
+        sty $ffff
+
+        inc sync_raster
+
+        pla                             ; restores A, X, Y
+        tay
+        pla
+        tax
+        pla
+        rti                             ; restores previous PC, status
+.endproc
+
+.proc irq_b
+        pha                             ; saves A, X, Y
+        txa
+        pha
+        tya
+        pha
+
+        asl $d019                       ; clears raster interrupt
+
+        STABILIZE_RASTER
+
+        .repeat 20
+                nop
+        .endrepeat
+
+        lda #%01000010                  ; screen ram: $1000 (%0100xxxx) (unchanged), charset addr: $0800 (%xxxx001x)
+        sta $d018
+        lda #%00001000                  ; no scroll, hi-res, 40-cols
+        sta $d016
+
+        .repeat 4, XX
+                lda label_colors + XX    ; 4 cycles
+                sta $d020               ; 4 cycles
+                sta $d021               ; 4 cycles
+                .repeat 24
+                        nop             ; 48 cycles
+                .endrepeat
+                bit $00                 ; 3 cycles
+        .endrepeat
+        lda label_colors + 4             ; 4 cycles
+        sta $d020                       ; 4 cycles
+        sta $d021                       ; 4 cycles
+        .repeat 4
+                nop                     ; 8 cycles
+        .endrepeat
+        .repeat 7, XX
+                lda label_colors + 5 + XX ; 4 cycles
+                sta $d020               ; 4 cycles
+                sta $d021               ; 4 cycles
+                .repeat 24
+                        nop             ; 48 cycles
+                .endrepeat
+                bit $00                 ; 3 cycles
+        .endrepeat
+        lda label_colors + 12            ; 4 cycles
+        sta $d020                       ; 4 cycles
+        sta $d021                       ; 4 cycles
+        .repeat 4
+                nop                     ; 8 cycles
+        .endrepeat
+        .repeat 3, XX
+                lda label_colors + 13+ XX  ; 4 cycles
+                sta $d020               ; 4 cycles
+                sta $d021               ; 4 cycles
+                .repeat 24
+                        nop             ; 48 cycles
+                .endrepeat
+                bit $00                 ; 3 cycles
+        .endrepeat
+
+        lda #0
+        sta $d020
+        sta $d021
+
+        lda #50 + 22 * 8 - 2
         sta $d012
 
         ldx #<irq_c
         ldy #>irq_c
         stx $fffe
         sty $ffff
-
-        inc sync_raster
 
         pla                             ; restores A, X, Y
         tay
@@ -502,17 +766,14 @@ sine_tmp: .byte 0
 
         asl $d019                       ; clears raster interrupt
 
-        lda #%01000010                  ; screen ram: $1000 (%0100xxxx) (unchanged), charset addr: $0800 (%xxxx001x)
-        sta $d018
-
         lda scroll_x                    ; x position
         sta $d016
 
-        lda #50 + 23 * 8 - 2
+        lda #50 + 22 * 8 - 2
         sta $d012
 
         ldx #<irq_d
-        ldy #>irq_a
+        ldy #>irq_d
         stx $fffe
         sty $ffff
 
@@ -545,9 +806,9 @@ sine_tmp: .byte 0
         lda #%01001000                  ; screen ram: $1000 (%0100xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
         sta $d018
 
-        .repeat 16, YY
+        .repeat 8*3, YY
 :               lda $d012
-                cmp #(50 + 23 * 8+YY+2)
+                cmp #(50 + 22 * 8+YY+2)
                 bne :-
                 lda sine_table + YY
                 sta $d016
@@ -594,13 +855,34 @@ scroll_text_bitmap:
         scrcode "    "                   ; bitmap stars 3 chars after
 scroll_text:
         scrcode "                *    *    *    *    *    *    "
-        scrcode " Probando scroll con reflejo... todavia le falta hacer la parte de que se mueva el aguita... ese efectito con el seno y demas"
-        scrcode ". Despues se lo agrego y vemos como queda. "
+        scrcode " hola amiguitos. en este scroll se pueden poner saludos, por ejemplo 'quiero saludar a todos"
+        scrcode " los televidentes que me estan viendo, tambi"
+        .byte 59
+        scrcode "n a mamita y a papito, y a mi abuelita, y a mi perrito, y a mi maestra de 4to grado.'"
+        scrcode "     bueno, creo que se entiende la idea. chau. "
         .byte $ff
-scroll_idx:
-        .byte 0                         ; scroll inx
 scroll_x:
         .byte 4                         ; $d016 value for charset scroll
+
+labels:
+                ;1234567890123456789012345678901234567890
+        scrcode "        commodore mania presenta        " 
+        scrcode "            un jueguito v1.0            " 
+        scrcode "    original provisto por: pepe pepe    " 
+        scrcode "         crackeado por: torrente        " 
+        scrcode "         el 32 de febrero de 1954       " 
+        scrcode "         www.commodoremania.com         "
+        scrcode "                 chau                   " 
+TOTAL_LABELS = (* - labels) / 40
+labels_addr:
+.repeat TOTAL_LABELS, YY
+        .addr (labels + 40 * YY)
+.endrepeat
+
+
+label_colors:
+        .byte $0b, $0c, $0f, $01, $01, $01, $01, $01
+        .byte $01, $01, $01, $01, $01, $0f, $0c, $0b
 
 sine_table:
 ; autogenerated table: easing_table_generator.py -s64 -m7 -aTrue -r easeInOutSine
@@ -622,6 +904,10 @@ sine_table:
 .byte   1,  1,  1,  1,  1,  1,  0,  0
 .byte   0,  0,  0,  0,  0,  0,  0,  0
 SINE_TABLE_SIZE = * - sine_table
+
+charset_copy:
+        .res 64 * 8, 0                          ; reserve space for 64 chars
+        
 
 .segment "CHARSET_LOGO"
 .incbin "logofinal-charset.bin"
