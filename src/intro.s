@@ -112,10 +112,11 @@ main_loop:
 .if (::DEBUG & 1)
         dec $d020
 .endif
+        jsr anim_flicker
+        jsr anim_labels
         jsr anim_sprite
         jsr anim_scroll_charset
         jsr anim_scroll_bitmap
-        jsr anim_labels
         jsr cycle_sine_table
 .if (::DEBUG & 1)
         inc $d020
@@ -269,6 +270,45 @@ loop:
         bne loop
 
         rts
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; anim_flicker
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.proc anim_flicker
+        lda in_flicker
+        bne do_flicker
+        dec delay
+        beq :+
+        rts
+:
+        dec delay+1
+        beq :+
+        rts
+:
+        lda #4
+        sta delay+1
+        lda #1
+        sta in_flicker
+do_flicker:
+        ldx palette_idx
+        lda palette_1,x
+        sta $d022
+        lda palette_2,x
+        sta $d023
+        inx
+        cpx #8
+        bne :+
+        ldx #0
+        stx in_flicker
+:       stx palette_idx
+
+        rts
+delay:          .word $400      ; counter
+in_flicker:     .byte 0         ; boolean
+palette_idx:    .byte 0
+palette_1:      .byte $0f,$0f,$05,$05,$0a,$0a,$0e,$0e
+palette_2:      .byte $01,$01,$0d,$0d,$07,$07,$03,$03
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
