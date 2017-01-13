@@ -18,7 +18,7 @@
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Imports/Exports
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-.import __SPRITES_LOAD__, __SCREEN_RAM_LOAD__, __CHARSET_FONT_LOAD__
+.import __SPRITES_LOAD__, __CHARSET_FONT_LOAD__
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Constants
@@ -26,14 +26,15 @@
 DEBUG = 0                               ; rasterlines:1, music:2, sine:4 all:7
 SPRITE0_POINTER = <((__SPRITES_LOAD__ .MOD $4000) / 64)
 
-INIT_MUSIC = $be00
-PLAY_MUSIC = $be20
+INIT_MUSIC = $1000
+PLAY_MUSIC = $1003
 
-BITMAP_ADDR = $6000
+BITMAP_ADDR = $2000
+SCREEN_RAM_ADDR = $0400
 
 LABEL_TEXT_ROW = 17
 SCROLL_TEXT_ROW = 20
-SCROLL_TEXT_ADDR = __SCREEN_RAM_LOAD__ + 40 * SCROLL_TEXT_ROW
+SCROLL_TEXT_ADDR = SCREEN_RAM_ADDR + 40 * SCROLL_TEXT_ROW
 SCROLL_BITMAP_ROW = 22
 SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
 
@@ -46,14 +47,13 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
         lda #$35                        ; no basic, no kernal
         sta $01
 
-        lda $dd00                       ; Vic bank 1: $4000-$7FFF
+        lda $dd00                       ; Vic bank 0: $4000-$7FFF
         and #$fc
-        ora #2
+        ora #3
         sta $dd00
 
         lda #0
         sta $d020                       ; border color
-        lda #0
         sta $d021                       ; background color
 
         lda #%00011000                  ; no scroll, multi-color, 40-cols
@@ -62,7 +62,7 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
         lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%01000000                  ; screen ram: $1000 (%0100xxxx), charset addr: $0000 (%xxxx000x)
+        lda #%00011000                  ; screen ram: $0400 (%0001xxxx), charset addr: $2000 (%xxxx100x)
         sta $d018
 
         lda #$7f                        ; turn off cia interrups
@@ -84,7 +84,7 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
         lda $dd0d
         asl $d019
 
-        lda #1                          ; second song
+        lda #0                          ; second song
         jsr INIT_MUSIC
 
         jsr init_color_ram
@@ -147,20 +147,29 @@ next_2:
 .proc init_color_ram
         ldx #0
 loop_a:
-        lda __SCREEN_RAM_LOAD__,x               ; c logo has 360 chars (9*40). Paint 360 chars
+        lda logofinal_map,x                     ; c logo has 360 chars (9*40). Paint 360 chars
+        sta SCREEN_RAM_ADDR,x
         tay
         lda logofinal_colors,y
         sta $d800,x
 
-        lda __SCREEN_RAM_LOAD__+256,x           ; c logo has 360 chars (9*40). Paint 360 chars
+        lda logofinal_map + $0100,x
+        sta SCREEN_RAM_ADDR + $0100,x
         tay
         lda logofinal_colors,y
-        sta $d800+256,x
+        sta $d800 + $0100,x
 
-        lda __SCREEN_RAM_LOAD__+256+256-214,x   ; second part (256 + 104 = 360)
+        lda logofinal_map + $0200,x
+        sta SCREEN_RAM_ADDR + $0200,x
         tay
         lda logofinal_colors,y
-        sta $d800+256+256-214,x
+        sta $d800 + $0200,x
+
+        lda logofinal_map + $02e8,x
+        sta SCREEN_RAM_ADDR + $02e8,x
+        tay
+        lda logofinal_colors,y
+        sta $d800 + $02e8,x
 
         dex
         bne loop_a
@@ -187,7 +196,7 @@ loop_c:
         ldx #0
 loop_d:
         lda #$b0                                ; dark gray over black
-        sta __SCREEN_RAM_LOAD__ + 40 * SCROLL_BITMAP_ROW,x
+        sta SCREEN_RAM_ADDR + 40 * SCROLL_BITMAP_ROW,x
         inx
         cpx #3*40
         bne loop_d
@@ -234,11 +243,11 @@ loop_d:
         sta VIC_SPR2_COLOR
         sta VIC_SPR3_COLOR
         lda #SPRITE0_POINTER            ; set sprite pointers
-        sta __SCREEN_RAM_LOAD__ + $3f8
-        sta __SCREEN_RAM_LOAD__ + $3f9
+        sta SCREEN_RAM_ADDR + $3f8
+        sta SCREEN_RAM_ADDR + $3f9
         lda #SPRITE0_POINTER + 6        ; set sprite pointers
-        sta __SCREEN_RAM_LOAD__ + $3fa
-        sta __SCREEN_RAM_LOAD__ + $3fb
+        sta SCREEN_RAM_ADDR + $3fa
+        sta SCREEN_RAM_ADDR + $3fb
 
         lda #0
         sta $d025                       ; sprite multicolor #0
@@ -256,9 +265,9 @@ loop_d:
         lda #0
 
 loop:
-        sta BITMAP_ADDR,x                 ; init the last 960 pixels (320 * 3)
-        sta BITMAP_ADDR + 320,x
-        sta BITMAP_ADDR + 320 - 64 ,x
+        sta SCROLL_BITMAP_ADDR,x                 ; init the last 960 pixels (320 * 3)
+        sta SCROLL_BITMAP_ADDR + 320,x
+        sta SCROLL_BITMAP_ADDR + 320 - 64 ,x
         dex
         bne loop
         rts
@@ -286,6 +295,11 @@ loop:
 
         rts
 .endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; segment "CODE"
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+.segment "HICODE"
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; anim_flicker
@@ -370,7 +384,7 @@ label_print:
 @l_addr = * + 1
         lda labels,x                    ; self modifying
         ora #$80
-        sta __SCREEN_RAM_LOAD__ + 40 * LABEL_TEXT_ROW,x
+        sta SCREEN_RAM_ADDR + 40 * LABEL_TEXT_ROW,x
         dex
         bpl @loop
 
@@ -649,9 +663,9 @@ anim:
 
         ldx sprite_frame_idx
         lda sprite_frame_spr0,x
-        sta __SCREEN_RAM_LOAD__ + $3f8
+        sta SCREEN_RAM_ADDR + $3f8
         lda sprite_frame_spr1,x
-        sta __SCREEN_RAM_LOAD__ + $3f9
+        sta SCREEN_RAM_ADDR + $3f9
 
         inx
         cpx #SPRITE_MAX_FRAMES
@@ -691,6 +705,9 @@ sine_tmp: .byte 0
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; irq vectors
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; top logo (charset)
 .proc irq_a
         pha                             ; saves A, X, Y
         txa
@@ -711,7 +728,7 @@ sine_tmp: .byte 0
         lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%01000000                  ; screen ram: $1000 (%0100xxxx), charset addr: $0000 (%xxxx000x)
+        lda #%00011000                  ; screen ram: $0400 (%0001xxxx), charset addr: $2000 (%xxxx100x)
         sta $d018
 
         lda #50 + 8 * 16 + 2            ; next irq at row 16
@@ -732,6 +749,8 @@ sine_tmp: .byte 0
         rti                             ; restores previous PC, status
 .endproc
 
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; center. raster bars
 .proc irq_b
         pha                             ; saves A, X, Y
         txa
@@ -747,8 +766,9 @@ sine_tmp: .byte 0
                 nop
         .endrepeat
 
-        lda #%01000010                  ; screen ram: $1000 (%0100xxxx) (unchanged), charset addr: $0800 (%xxxx001x)
+        lda #%00011010                  ; screen ram: $0400 (%0001xxxx) (unchanged), charset addr: $2800 (%xxxx101x)
         sta $d018
+
         lda #%00001000                  ; no scroll, hi-res, 40-cols
         sta $d016
 
@@ -858,7 +878,7 @@ sine_tmp: .byte 0
         lda #%00111011                  ; bitmap mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%01001000                  ; screen ram: $1000 (%0100xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
+        lda #%00011000                  ; screen ram: $0400 (%0001xxxx) (unchanged), bitmap: $2000 (%xxxx1xxx)
         sta $d018
 
         .repeat 8*3, YY
@@ -897,6 +917,8 @@ sync_raster:        .byte 0                 ; boolean
 
 logofinal_colors:
         .incbin "logofinal-colors.bin"
+logofinal_map:
+        .include "logofinal-map.s"
 
 sprite_frame_idx:
         .byte 0
@@ -962,7 +984,7 @@ SINE_TABLE_SIZE = * - sine_table
 
 charset_copy:
         .res 64 * 8, 0                          ; reserve space for 64 chars
-        
+
 
 .segment "CHARSET_LOGO"
 .incbin "logofinal-charset.bin"
@@ -970,14 +992,10 @@ charset_copy:
 .segment "CHARSET_FONT"
 .incbin "font_caren_1x2-charset.bin"
 
-.segment "SCREEN_RAM"
-.include "logofinal-map.s"
-
 .segment "SPRITES"
 .incbin "sprites.bin"
 
 .segment "SIDMUSIC"
-.incbin "sanxion.sid", $7e
-
+.incbin "uc-marionette.sid", $7e
 
 
