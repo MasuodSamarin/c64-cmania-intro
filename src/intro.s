@@ -231,50 +231,73 @@ loop_d:
 .proc init_sprites
         lda #%00001111                  ; enable some sprites
         sta VIC_SPR_ENA
-        lda #%00000011
+        lda #%00001111
         sta $d01c                       ; multi-color sprite #0,#1
+
+        lda #%00001010
+        sta $d01b                       ; sprite-background priority
 
         lda #%00000000
         sta $d017                       ; double y resolution
         sta $d01d                       ; double x resolution
 
-        lda #%00001010
+        lda #%00001100
         sta $d010                       ; 8-bit on for sprites x
-
-
-        lda #34                        ; set x position
-        sta VIC_SPR0_X
-        lda #28                        ; set x position
-        sta VIC_SPR2_X
-        lda #52                        ; set x position
-        sta VIC_SPR1_X
-        lda #58                        ; set x position
-        sta VIC_SPR3_X
-        lda #208                       ; set y position
-        sta VIC_SPR0_Y
-        sta VIC_SPR1_Y
-        lda #206                       ; set y position
-        sta VIC_SPR2_Y
-        sta VIC_SPR3_Y
-        lda #7                          ; set sprite color
-        sta VIC_SPR0_COLOR
-        sta VIC_SPR1_COLOR
-        lda #0
-        sta VIC_SPR2_COLOR
-        sta VIC_SPR3_COLOR
-        lda #SPRITE0_POINTER            ; set sprite pointers
-        sta SCREEN_RAM_ADDR + $3f8
-        sta SCREEN_RAM_ADDR + $3f9
-        lda #SPRITE0_POINTER + 6        ; set sprite pointers
-        sta SCREEN_RAM_ADDR + $3fa
-        sta SCREEN_RAM_ADDR + $3fb
 
         lda #0
         sta $d025                       ; sprite multicolor #0
         lda #10
         sta $d026                       ; sprite multicolor #1
 
+        ldx #0
+        ldy #0
+
+@l0:    lda sprite_color,x
+        sta VIC_SPR0_COLOR,x
+
+        lda sprite_ptr,x
+        sta SCREEN_RAM_ADDR + $3f8,x
+
+        lda sprite_x,x
+        sta VIC_SPR0_X,y
+
+        lda sprite_y,x
+        sta VIC_SPR0_Y,y
+
+        iny
+        iny
+        inx
+        cpx #8
+        bne @l0
+
         rts
+
+        ; sprites:
+        ; 0: left pacman foreground
+        ; 1: left pacman background
+        ; 2: right pacman foreground
+        ; 3: right pacman background
+        ;
+        ; 4: left pacman mask
+        ; 5: left block
+        ; 6: right pacman mask
+        ; 7: right block
+sprite_x:
+        .byte 34, 34, 52, 52, 34, 28, 52, 58
+sprite_y:
+        .byte 208, 208, 208, 208, 208, 206, 208, 206
+sprite_color:
+        .byte 7, 7, 7, 7, 0, 0, 0, 0
+sprite_ptr:
+        .byte SPRITE0_POINTER + 0
+        .byte SPRITE0_POINTER + 6
+        .byte SPRITE0_POINTER + 5
+        .byte SPRITE0_POINTER + 11
+
+        .byte SPRITE0_POINTER + 12
+        .byte SPRITE0_POINTER + 14
+        .byte SPRITE0_POINTER + 13
+        .byte SPRITE0_POINTER + 14
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
@@ -492,12 +515,12 @@ label_print_idx: .byte 0
 
 do_scroll:
         ldx #0
-loop:   lda SCROLL_TEXT_ADDR + 1,x                      ; scroll top part of 1x2 char
-        sta SCROLL_TEXT_ADDR,x
-        lda SCROLL_TEXT_ADDR + 40 + 1,x                 ; scroll bottom part of 1x2 char
-        sta SCROLL_TEXT_ADDR + 40,x
+loop:   lda SCROLL_TEXT_ADDR + 3,x                      ; scroll top part of 1x2 char
+        sta SCROLL_TEXT_ADDR + 2,x
+        lda SCROLL_TEXT_ADDR + 40 + 3,x                 ; scroll bottom part of 1x2 char
+        sta SCROLL_TEXT_ADDR + 40 + 2,x
         inx
-        cpx #39
+        cpx #35
         bne loop
 
         ; put next char in column 40
@@ -513,9 +536,9 @@ scroll_addr = * + 1
         sta scroll_addr+1
         lda scroll_text                                 ; self modifying
 
-@2:     sta SCROLL_TEXT_ADDR + 39                       ; top part of the 1x2 char
+@2:     sta SCROLL_TEXT_ADDR + 36                       ; top part of the 1x2 char
         ora #$40                                        ; bottom part is 128 chars ahead in the charset
-        sta SCROLL_TEXT_ADDR + 40 + 39                  ; bottom part of the 1x2 char
+        sta SCROLL_TEXT_ADDR + 40 + 36                  ; bottom part of the 1x2 char
 
         inc scroll_addr
         bne endscroll
@@ -684,10 +707,16 @@ anim:
         sta delay
 
         ldx sprite_frame_idx
+
         lda sprite_frame_spr0,x
         sta SCREEN_RAM_ADDR + $3f8
-        lda sprite_frame_spr1,x
+        lda sprite_frame_spr0_bkg,x
         sta SCREEN_RAM_ADDR + $3f9
+
+        lda sprite_frame_spr1,x
+        sta SCREEN_RAM_ADDR + $3fa
+        lda sprite_frame_spr1_bkg,x
+        sta SCREEN_RAM_ADDR + $3fb
 
         inx
         cpx #SPRITE_MAX_FRAMES
@@ -854,6 +883,8 @@ sine_tmp: .byte 0
         rti                             ; restores previous PC, status
 .endproc
 
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; scroll text
 .proc irq_c
         pha                             ; saves A, X, Y
         txa
@@ -882,6 +913,8 @@ sine_tmp: .byte 0
         rti                             ; restores previous PC, status
 .endproc
 
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; scroll bitmap
 .proc irq_d
         pha                             ; saves A, X, Y
         txa
@@ -945,13 +978,18 @@ logofinal_map:
 sprite_frame_idx:
         .byte 0
 sprite_frame_spr0:
-        .byte SPRITE0_POINTER, SPRITE0_POINTER+1, SPRITE0_POINTER+2, SPRITE0_POINTER+1
+        .byte SPRITE0_POINTER+0, SPRITE0_POINTER+1, SPRITE0_POINTER+2, SPRITE0_POINTER+1
+sprite_frame_spr0_bkg:
+        .byte SPRITE0_POINTER+6, SPRITE0_POINTER+7, SPRITE0_POINTER+8, SPRITE0_POINTER+7
 sprite_frame_spr1:
         .byte SPRITE0_POINTER+3, SPRITE0_POINTER+4, SPRITE0_POINTER+5, SPRITE0_POINTER+4
-SPRITE_MAX_FRAMES = * - sprite_frame_spr1
+sprite_frame_spr1_bkg:
+        .byte SPRITE0_POINTER+9, SPRITE0_POINTER+10, SPRITE0_POINTER+11, SPRITE0_POINTER+10
+
+SPRITE_MAX_FRAMES = * - sprite_frame_spr1_bkg
 
 scroll_text_bitmap:
-        scrcode "    "                   ; bitmap stars 3 chars after
+        scrcode " "                   ; bitmap starts a few chars after
 scroll_text:
         scrcode "                *    *    *    *    *    *    "
         scrcode " hola amiguitos. en este scroll se pueden poner saludos, por ejemplo 'quiero saludar a todos"
