@@ -773,10 +773,6 @@ sine_tmp: .byte 0
 ; top logo (charset)
 .proc irq_a
         pha                             ; saves A, X, Y
-        txa
-        pha
-        tya
-        pha
 
         asl $d019                       ; clears raster interrupt
 
@@ -794,22 +790,41 @@ sine_tmp: .byte 0
         lda #%00011000                  ; screen ram: $0400 (%0001xxxx), bitmap addr: $2000 (%xxxx1xxx)
         sta $d018
 
-        lda #50 + 8 * 16 + 2            ; next irq at row 16
+        lda #50 + 8 * 13 + 4            ; next irq at row 13.5
         sta $d012
 
-        ldx #<irq_b
-        ldy #>irq_b
-        stx $fffe
-        sty $ffff
+        lda #<irq_a_bis
+        sta $fffe
+        lda #>irq_a_bis
+        sta $ffff
 
         inc sync_raster
 
         pla                             ; restores A, X, Y
-        tay
-        pla
-        tax
-        pla
         rti                             ; restores previous PC, status
+.endproc
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; turn off bitmap mode
+.proc irq_a_bis
+        pha
+
+        asl $d019                       ; clears raster interrupt
+
+        lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
+        sta $d011
+
+        lda #50 + 8 * 16 + 2            ; next irq at row 16.25
+        sta $d012
+
+        lda #<irq_b
+        sta $fffe
+        lda #>irq_b
+        sta $ffff
+
+        pla
+
+        rti
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
@@ -825,7 +840,7 @@ sine_tmp: .byte 0
 
         STABILIZE_RASTER
 
-        .repeat 17
+        .repeat 20
                 nop
         .endrepeat
 
@@ -834,9 +849,6 @@ sine_tmp: .byte 0
 
         lda #%00001000                  ; no scroll, hi-res, 40-cols
         sta $d016
-
-        lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
-        sta $d011
 
         .repeat 4, XX
                 lda label_colors + XX    ; 4 cycles
