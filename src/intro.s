@@ -18,7 +18,7 @@
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Imports/Exports
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-.import __SPRITES_LOAD__, __CHARSET_FONT_LOAD__
+.import __SPRITES_LOAD__ 
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Constants
@@ -31,6 +31,7 @@ PLAY_MUSIC = $1003
 
 BITMAP_ADDR = $2000
 SCREEN_RAM_ADDR = $0400
+CHARSET_ADDR = $3000
 
 LABEL_TEXT_ROW = 17
 SCROLL_TEXT_ROW = 20
@@ -165,61 +166,69 @@ next_2:
 ; init_color_ram
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc init_color_ram
-        ldx #0
-loop_a:
-        lda logofinal_map,x                     ; c logo has 360 chars (9*40). Paint 360 chars
+
+        ldx #0                                  ; clean screen RAM
+        lda #$20
+@l0:    sta $0400,x
+        sta $0500,x
+        sta $0600,x
+        sta $06e8,x
+        dex
+        bne @l0
+
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+        ldx #0                                  ; setup logo-bitmap stuff: attrib
+                                                ; and colmap
+@l1:
+        lda logo_colmap,x                       ; 40 * 13 = 520
         sta SCREEN_RAM_ADDR,x
-        tay
-        lda logofinal_colors,y
+
+        lda logo_attrib,x
         sta $d800,x
 
-        lda logofinal_map + $0100,x
+        lda logo_colmap + $0100,x
         sta SCREEN_RAM_ADDR + $0100,x
-        tay
-        lda logofinal_colors,y
+
+        lda logo_attrib + $0100,x
         sta $d800 + $0100,x
 
-        lda logofinal_map + $0200,x
-        sta SCREEN_RAM_ADDR + $0200,x
-        tay
-        lda logofinal_colors,y
-        sta $d800 + $0200,x
+        lda logo_colmap + $0108,x
+        sta SCREEN_RAM_ADDR + $0108,x
 
-        lda logofinal_map + $02e8,x
-        sta SCREEN_RAM_ADDR + $02e8,x
-        tay
-        lda logofinal_colors,y
-        sta $d800 + $02e8,x
+        lda logo_attrib + $0108,x
+        sta $d800 + $0108,x
 
         dex
-        bne loop_a
+        bne @l1
 
-        ;
-        ldx #39
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+        ldx #39                                 ; setup attrib for label
         lda #$0b                                ; color
-loop_b:
+@l2:
         sta $d800 + 40 * LABEL_TEXT_ROW,x
         dex
-        bpl loop_b
+        bpl @l2
 
-        ;
 
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+                                                ; setup stuff for bitmap scroll
         ldx #0                                  ; paint the rest with white
         lda #1
-loop_c:
+@l3:
         sta $d800 + 18 * 40,x                   ; 7 lines. 7 * 40 = 280 = 256 + 24
         sta $d800 + 18 * 40 + 24,x
         dex
-        bne loop_c
+        bne @l3
 
 
         ldx #0
-loop_d:
+@l4:
         lda #$b0                                ; dark gray over black
         sta SCREEN_RAM_ADDR + 40 * SCROLL_BITMAP_ROW,x
         inx
         cpx #3*40
-        bne loop_d
+        bne @l4
 
         rts
 .endproc
@@ -324,15 +333,15 @@ loop:
         ldy #0
 
 loop:
-        lda __CHARSET_FONT_LOAD__ + 128 * 8,x           ; copy 64 chars (64 * 8 = 512)
+        lda CHARSET_ADDR + 192 * 8,x           ; copy 64 chars (64 * 8 = 512)
         sta charset_copy,x
         tya
-        sta __CHARSET_FONT_LOAD__ + 128 * 8,x
+        sta CHARSET_ADDR + 192 * 8,x
 
-        lda __CHARSET_FONT_LOAD__ + 128 * 8 + 256,x
+        lda CHARSET_ADDR + 192 * 8 + 256,x
         sta charset_copy + 256,x
         tya
-        sta __CHARSET_FONT_LOAD__ + 128 * 8 + 256,x
+        sta CHARSET_ADDR + 192 * 8 + 256,x
         dex
         bne loop
 
@@ -426,7 +435,7 @@ label_print:
 
 @l_addr = * + 1
         lda labels,x                    ; self modifying
-        ora #$80
+        ora #$c0
         sta SCREEN_RAM_ADDR + 40 * LABEL_TEXT_ROW,x
         dex
         bpl @loop
@@ -446,11 +455,11 @@ label_in:
 
         .repeat 64, XX
                 .repeat 7, YY
-                        lda __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 6 - YY
-                        sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 7 - YY
+                        lda CHARSET_ADDR + 192 * 8 + 8 * XX + 6 - YY
+                        sta CHARSET_ADDR + 192 * 8 + 8 * XX + 7 - YY
                 .endrepeat
                 lda charset_copy + 8 * XX,x
-                sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX
+                sta CHARSET_ADDR + 192 * 8 + 8 * XX
         .endrepeat
 
         dec label_in_idx
@@ -474,11 +483,11 @@ label_out:
 
         .repeat 64, XX
                 .repeat 7, YY
-                        lda __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 6 - YY
-                        sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX + 7 - YY
+                        lda CHARSET_ADDR + 192 * 8 + 8 * XX + 6 - YY
+                        sta CHARSET_ADDR + 192 * 8 + 8 * XX + 7 - YY
                 .endrepeat
                 lda #0
-                sta __CHARSET_FONT_LOAD__ + 128 * 8 + 8 * XX
+                sta CHARSET_ADDR + 192 * 8 + 8 * XX
         .endrepeat
 
         dec label_in_idx
@@ -536,8 +545,11 @@ scroll_addr = * + 1
         sta scroll_addr+1
         lda scroll_text                                 ; self modifying
 
-@2:     sta SCROLL_TEXT_ADDR + 36                       ; top part of the 1x2 char
-        ora #$40                                        ; bottom part is 128 chars ahead in the charset
+@2:
+        ora #$40
+        sta SCROLL_TEXT_ADDR + 36                       ; top part of the 1x2 char
+        and #%10111111                                   ; remove the "ora #$40"
+        ora #$80                                        ; bottom part is 128 chars ahead in the charset
         sta SCROLL_TEXT_ADDR + 40 + 36                  ; bottom part of the 1x2 char
 
         inc scroll_addr
@@ -558,8 +570,8 @@ endscroll:
         lda #0
         sta ZP_TMP0                     ; tmp variable
 
-        ldx #<__CHARSET_FONT_LOAD__
-        ldy #>__CHARSET_FONT_LOAD__
+        ldx #<(CHARSET_ADDR + 64 * 8)
+        ldy #>(CHARSET_ADDR + 64 * 8)
         stx ZP_TMP2
         sty ZP_TMP3                     ; pointer to charset
 
@@ -776,10 +788,10 @@ sine_tmp: .byte 0
         lda #%00011000                  ; no scroll, multi-color, 40-cols
         sta $d016
 
-        lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
+        lda #%00111011                  ; bitmap mode, default scroll-Y position, 25-rows
         sta $d011
 
-        lda #%00011000                  ; screen ram: $0400 (%0001xxxx), charset addr: $2000 (%xxxx100x)
+        lda #%00011000                  ; screen ram: $0400 (%0001xxxx), bitmap addr: $2000 (%xxxx1xxx)
         sta $d018
 
         lda #50 + 8 * 16 + 2            ; next irq at row 16
@@ -813,15 +825,18 @@ sine_tmp: .byte 0
 
         STABILIZE_RASTER
 
-        .repeat 20
+        .repeat 17
                 nop
         .endrepeat
 
-        lda #%00011010                  ; screen ram: $0400 (%0001xxxx) (unchanged), charset addr: $2800 (%xxxx101x)
+        lda #%00011100                  ; screen ram: $0400 (%0001xxxx) (unchanged), charset addr: $3000 (%xxxx110x)
         sta $d018
 
         lda #%00001000                  ; no scroll, hi-res, 40-cols
         sta $d016
+
+        lda #%00011011                  ; charset mode, default scroll-Y position, 25-rows
+        sta $d011
 
         .repeat 4, XX
                 lda label_colors + XX    ; 4 cycles
@@ -968,12 +983,13 @@ sine_tmp: .byte 0
         rti                             ; restores previous PC, status
 .endproc
 
-sync_raster:        .byte 0                 ; boolean
+sync_raster:        .byte 0             ; boolean
 
-logofinal_colors:
-        .incbin "logofinal-colors.bin"
-logofinal_map:
-        .include "logofinal-map.s"
+logo_attrib:
+        .incbin "logo.40x13.attrib"     ; $d800
+
+logo_colmap:
+        .incbin "logo.40x13.colmap"    ; $0400
 
 sprite_frame_idx:
         .byte 0
@@ -1046,8 +1062,8 @@ charset_copy:
         .res 64 * 8, 0                          ; reserve space for 64 chars
 
 
-.segment "CHARSET_LOGO"
-.incbin "logofinal-charset.bin"
+.segment "BITMAP_LOGO"
+.incbin "logo.320x104.bitmap"
 
 .segment "CHARSET_FONT"
 .incbin "font_caren_1x2-charset.bin"
