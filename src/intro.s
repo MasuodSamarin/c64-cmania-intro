@@ -39,6 +39,20 @@ SCROLL_BITMAP_ROW = 22
 SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+; ZP
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
+ZP_TMP0         = $20                   ; byte
+ZP_TMP1         = $21                   ; byte
+ZP_TMP2         = $22                   ; byte
+ZP_TMP3         = $23                   ; byte
+ZP_TMP4         = $24                   ; byte
+ZP_TMP5         = $25                   ; byte
+ZP_TMP6         = $26                   ; byte
+ZP_TMP7         = $27                   ; byte
+ZP_TMP8         = $28                   ; byte
+ZP_TMP9         = $29                   ; byte
+
+;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; Macros
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .segment "CODE"
@@ -84,13 +98,15 @@ SCROLL_BITMAP_ADDR = BITMAP_ADDR + 320 * SCROLL_BITMAP_ROW
         lda $dd0d
         asl $d019
 
-        lda #0                          ; second song
-        jsr INIT_MUSIC
-
         jsr init_color_ram
         jsr init_sprites
         jsr init_bitmap
         jsr init_charset
+
+        lda #0                          ; second song
+        tax
+        tay
+        jsr INIT_MUSIC
 
         cli
 
@@ -103,15 +119,6 @@ main_loop:
         beq main_loop
 
         dec sync_raster
-
-.if (::DEBUG & 2)
-        inc $d020
-.endif
-        jsr PLAY_MUSIC
-.if (::DEBUG & 2)
-        dec $d020
-.endif
-
 
 .if (::DEBUG & 1)
         dec $d020
@@ -126,12 +133,25 @@ main_loop:
         inc $d020
 .endif
 
+
+.if (::DEBUG & 2)
+        inc $d020
+.endif
+        lda #0
+        tax
+        tay
+        jsr PLAY_MUSIC
+.if (::DEBUG & 2)
+        dec $d020
+.endif
+
+
 next_2:
 
         jmp main_loop
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-; exit 
+; exit
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc exit
         lda #0
@@ -297,7 +317,7 @@ loop:
 .endproc
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
-; segment "CODE"
+; segment "HICODE"
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .segment "HICODE"
 
@@ -453,7 +473,7 @@ label_delay_counter: .byte 0
 label_print_idx: .byte 0
 
 .endproc
-        
+
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; anim_scroll_charset
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
@@ -507,18 +527,19 @@ endscroll:
 
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 ; anim_scroll_bitmap
-; uses $fa-$ff as temp variables
+; uses ZP_TMP0 - ZP_TMP3 as temp variables
 ;=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-;
 .proc anim_scroll_bitmap
 
-        ; uses fa-ff
+        ; uses ZP_TMP0
         lda #0
-        sta $fa                         ; tmp variable
+        sta ZP_TMP0                     ; tmp variable
 
         ldx #<__CHARSET_FONT_LOAD__
         ldy #>__CHARSET_FONT_LOAD__
-        stx $fc
-        sty $fd                         ; pointer to charset
+        stx ZP_TMP2
+        sty ZP_TMP3                     ; pointer to charset
+
 
 load_scroll_addr = * + 1
         lda scroll_text_bitmap          ; self-modifying.1st address is 3 chars
@@ -532,29 +553,30 @@ load_scroll_addr = * + 1
         sty load_scroll_addr+1
         lda scroll_text
 
+
 next:
         clc                             ; char_idx * 8
         asl
-        rol $fa
+        rol ZP_TMP0
         asl
-        rol $fa
+        rol ZP_TMP0
         asl
-        rol $fa
+        rol ZP_TMP0
 
-        tay                             ; char_def = ($fc),y
-        sty $fb                         ; to be used in the bottom part of the char
+        tay                             ; char_def = (ZP_TMP2),y
+        sty ZP_TMP1                     ; to be used in the bottom part of the char
 
         clc
-        lda $fd
-        adc $fa                         ; A = charset[char_idx * 8]
-        sta $fd
+        lda ZP_TMP3
+        adc ZP_TMP0                     ; A = charset[char_idx * 8]
+        sta ZP_TMP3
 
 
-        ; scroll top 8 bytes 
+        ; scroll top 8 bytes
         ; YY = char rows
         ; SS = bitmap cols
         .repeat 4, YY
-                lda ($fc),y
+                lda (ZP_TMP2),y
                 ldx bit_idx             ; set C according to the current bit index
 :               asl
                 dex
@@ -576,11 +598,11 @@ next:
                 iny                     ; byte of the char
         .endrepeat
 
-        ; scroll top 8 bytes 
+        ; scroll top 8 bytes
         ; YY = char rows
         ; SS = bitmap cols
         .repeat 4, YY
-                lda ($fc),y
+                lda (ZP_TMP2),y
                 ldx bit_idx             ; set C according to the current bit index
 :               asl
                 dex
@@ -606,19 +628,19 @@ next:
         ; fetch bottom part of the char
         ; and repeat the same thing
         ; which is 512 chars appart from the previous.
-        ; so, I only have to add #4 to $fd
+        ; so, I only have to add #4 to ZP_TMP3
         clc
-        lda $fd
+        lda ZP_TMP3
         adc #02                         ; the same thing as adding 512
-        sta $fd
+        sta ZP_TMP3
 
-        ldy $fb                         ; restore Y from tmp variable
+        ldy ZP_TMP1                     ; restore Y from tmp variable
 
         ; scroll middle 8 bytes
         ; YY = char rows
         ; SS = bitmap cols
         .repeat 8, YY
-                lda ($fc),y
+                lda (ZP_TMP2),y
                 ldx bit_idx             ; set C according to the current bit index
 :               asl
                 dex
@@ -943,13 +965,13 @@ scroll_x:
 
 labels:
                 ;1234567890123456789012345678901234567890
-        scrcode "        commodore mania presenta        " 
-        scrcode "            un jueguito v1.0            " 
-        scrcode "    original provisto por: pepe pepe    " 
-        scrcode "         crackeado por: torrente        " 
-        scrcode "         el 32 de febrero de 1954       " 
+        scrcode "        commodore mania presenta        "
+        scrcode "            un jueguito v1.0            "
+        scrcode "    original provisto por: pepe pepe    "
+        scrcode "         crackeado por: torrente        "
+        scrcode "         el 32 de febrero de 1954       "
         scrcode "         www.commodoremania.com         "
-        scrcode "                 chau                   " 
+        scrcode "                 chau                   "
 TOTAL_LABELS = (* - labels) / 40
 labels_addr:
 .repeat TOTAL_LABELS, YY
